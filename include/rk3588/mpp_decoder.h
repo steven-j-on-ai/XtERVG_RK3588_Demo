@@ -49,11 +49,11 @@ private:
     // base flow context
     MpiCmd mpi_cmd      = MPP_CMD_BASE;
     MppParam mpp_param1 = NULL;
-    RK_U32 need_split   = 1;
+    RK_U32 need_split   = 0;
     RK_U32 width_mpp       ;
     RK_U32 height_mpp      ;
     MppCodingType mpp_type ;
-    size_t packet_size  = 2400*1300*3/2;
+    size_t packet_size  = 2400 * 1300 * 3 / 2;
     MpiDecLoopData loop_data;
     // bool vedio_type;//判断vedio是h264/h265
     MppPacket packet    = NULL;

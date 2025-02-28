@@ -9,6 +9,8 @@
 #define LOGD fprintf
 // #define LOGD
 
+int g_is_push = 1;
+
 static unsigned long GetCurrentTimeMS() {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
@@ -142,9 +144,11 @@ int MppDecoder::Decode(uint8_t* pkt_data, int pkt_size, int pkt_eos)
 	do {
 		ret = mpi->decode_put_packet(ctx, packet);
 		if (MPP_OK == ret){
+			g_is_push = 1;
 			break;
 		}else{
 			LOGD(stderr, "decode_put_packet failed ret = %d \n", ret);
+			g_is_push = 0;
 		}
 		usleep(3 * 1000);
 	} while (1);
@@ -173,11 +177,11 @@ int MppDecoder::GetFrame(void)
 				LOGD(stderr, "decode_get_frame try_again times = %d \n", 5 - times);
 				goto try_again;
 			}
-			LOGD(stderr, "decode_get_frame failed too much time ");
+			LOGD(stderr, "decode_get_frame failed too much time \n");
 		}
 
 		if (MPP_OK != ret) {
-			LOGD(stderr, "decode_get_frame failed ret %d ", ret);
+			LOGD(stderr, "decode_get_frame failed ret %d \n", ret);
 			usleep(2000);
 			continue;
 		}
@@ -199,21 +203,21 @@ int MppDecoder::GetFrame(void)
 					/* If buffer group is not set create one and limit it */
 					ret = mpp_buffer_group_get_internal(&data->frm_grp, MPP_BUFFER_TYPE_DRM);
 					if (ret) {
-						LOGD(stderr, "%p get mpp buffer group failed ret %d ", ctx, ret);
+						LOGD(stderr, "%p get mpp buffer group failed ret %d \n", ctx, ret);
 						goto END;
 					}
 
 					/* Set buffer to mpp decoder */
 					ret = mpi->control(ctx, MPP_DEC_SET_EXT_BUF_GROUP, data->frm_grp);
 					if (ret) {
-						LOGD(stderr, "%p set buffer group failed ret %d ", ctx, ret);
+						LOGD(stderr, "%p set buffer group failed ret %d \n", ctx, ret);
 						goto END;
 					}
 				} else {
 					/* If old buffer group exist clear it */
 					ret = mpp_buffer_group_clear(data->frm_grp);
 					if (ret) {
-						LOGD(stderr, "%p clear buffer group failed ret %d ", ctx, ret);
+						LOGD(stderr, "%p clear buffer group failed ret %d \n", ctx, ret);
 						goto END;
 					}
 				}
@@ -221,7 +225,7 @@ int MppDecoder::GetFrame(void)
 				/* Use limit config to limit buffer count to 24 with buf_size */
 				ret = mpp_buffer_group_limit_config(data->frm_grp, buf_size, 24);
 				if (ret) {
-					LOGD(stderr, "%p limit buffer group failed ret %d ", ctx, ret);
+					LOGD(stderr, "%p limit buffer group failed ret %d \n", ctx, ret);
 					goto END;
 				}
 
@@ -231,21 +235,22 @@ int MppDecoder::GetFrame(void)
 				 */
 				ret = mpi->control(ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
 				if (ret) {
-					LOGD(stderr, "%p info change ready failed ret %d ", ctx, ret);
+					LOGD(stderr, "%p info change ready failed ret %d \n", ctx, ret);
 					goto END;
 				}
 				this->last_frame_time_ms = GetCurrentTimeMS();
 			} else {
 				err_info = mpp_frame_get_errinfo(frame) | mpp_frame_get_discard(frame);
 				if (err_info) {
-					LOGD(stderr, "decoder_get_frame get err info:%d discard:%d. ",
+					LOGD(stderr, "decoder_get_frame get err info:%d discard:%d. \n",
 							mpp_frame_get_errinfo(frame), mpp_frame_get_discard(frame));
 				}
-				if (callback != nullptr) {
+				if (callback != nullptr && g_is_push) {
 					MppFrameFormat format = mpp_frame_get_fmt(frame);
 					char *data_vir =(char *) mpp_buffer_get_ptr(mpp_frame_get_buffer(frame));
 					int fd = mpp_buffer_get_fd(mpp_frame_get_buffer(frame));
 					callback(this->userdata, hor_stride, ver_stride, hor_width, ver_height, format, fd, data_vir);
+					g_is_push = 0;
 				}
 			}
 			END:

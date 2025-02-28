@@ -224,6 +224,8 @@ static int release_model(rknn_app_context_t *app_ctx)
 	return 0;
 }
 
+void *g_resize_buf = nullptr;
+rknn_output *g_outputs_p = NULL;
 static int inference_model(rknn_app_context_t *app_ctx, image_frame_t *img, detect_result_group_t *detect_result)
 {
 	int ret;
@@ -235,7 +237,6 @@ static int inference_model(rknn_app_context_t *app_ctx, image_frame_t *img, dete
 	const float nms_threshold = NMS_THRESH;
 	const float box_conf_threshold = BOX_THRESH;
 	// You may not need resize when src resulotion equals to dst resulotion
-	void *resize_buf = nullptr;
 	// init rga context
 	rga_buffer_t src;
 	rga_buffer_t dst;
@@ -259,12 +260,13 @@ static int inference_model(rknn_app_context_t *app_ctx, image_frame_t *img, dete
 	inputs[0].fmt = RKNN_TENSOR_NHWC;
 	inputs[0].pass_through = 0;
 
-	// fprintf(stderr, "[inference_model] resize with RGA!\n");
-	resize_buf = malloc(model_width * model_height * model_channel);
-	memset(resize_buf, 0, model_width * model_height * model_channel);
+	if(!g_resize_buf){
+		g_resize_buf = malloc(model_width * model_height * model_channel);
+	}
+	memset(g_resize_buf, 0, model_width * model_height * model_channel);
 
 	src = wrapbuffer_virtualaddr((void *)img->virt_addr, img->width, img->height, img->format, img->width_stride, img->height_stride);
-	dst = wrapbuffer_virtualaddr((void *)resize_buf, model_width, model_height, RK_FORMAT_RGB_888);
+	dst = wrapbuffer_virtualaddr((void *)g_resize_buf, model_width, model_height, RK_FORMAT_RGB_888);
 	ret = imcheck(src, dst, src_rect, dst_rect);
 	if (IM_STATUS_NOERROR != ret)
 	{
@@ -273,20 +275,22 @@ static int inference_model(rknn_app_context_t *app_ctx, image_frame_t *img, dete
 	}
 	IM_STATUS STATUS = imresize(src, dst);
 
-	inputs[0].buf = resize_buf;
+	inputs[0].buf = g_resize_buf;
 
 	rknn_inputs_set(ctx, app_ctx->io_num.n_input, inputs);
 
-	rknn_output outputs[app_ctx->io_num.n_output];
-	memset(outputs, 0, sizeof(outputs));
+	
+	if(!g_outputs_p){
+		g_outputs_p = (rknn_output *)malloc(sizeof(rknn_output) * app_ctx->io_num.n_output);
+	}
+	memset(g_outputs_p, 0, sizeof(rknn_output) * app_ctx->io_num.n_output);
 	for (int i = 0; i < app_ctx->io_num.n_output; i++)
 	{
-		outputs[i].want_float = 0;
+		g_outputs_p[i].want_float = 0;
 	}
 
 	ret = rknn_run(ctx, NULL);
-	ret = rknn_outputs_get(ctx, app_ctx->io_num.n_output, outputs, NULL);
-	// fprintf(stderr, "[inference_model] post process config: box_conf_threshold = %.2f, nms_threshold = %.2f\n", box_conf_threshold, nms_threshold);
+	ret = rknn_outputs_get(ctx, app_ctx->io_num.n_output, g_outputs_p, NULL);
 
 	std::vector<float> out_scales;
 	std::vector<int32_t> out_zps;
@@ -298,14 +302,10 @@ static int inference_model(rknn_app_context_t *app_ctx, image_frame_t *img, dete
 	BOX_RECT pads;
 	memset(&pads, 0, sizeof(BOX_RECT));
 
-	post_process((int8_t *)outputs[0].buf, (int8_t *)outputs[1].buf, (int8_t *)outputs[2].buf, model_height, model_width,
+	post_process((int8_t *)g_outputs_p[0].buf, (int8_t *)g_outputs_p[1].buf, (int8_t *)g_outputs_p[2].buf, model_height, model_width,
 							 box_conf_threshold, nms_threshold, pads, scale_w, scale_h, out_zps, out_scales, detect_result);
-	ret = rknn_outputs_release(ctx, app_ctx->io_num.n_output, outputs);
+	ret = rknn_outputs_release(ctx, app_ctx->io_num.n_output, g_outputs_p);
 
-	if (resize_buf)
-	{
-		free(resize_buf);
-	}
 	return 0;
 }
 
@@ -453,6 +453,18 @@ int deinit_rk3588(rknn_app_context_t *ctx)
 	release_model(ctx);
 
 	frame_index = 0;
+
+	if (g_resize_buf)
+	{
+		free(g_resize_buf);
+		g_resize_buf = nullptr;
+	}
+
+	if (g_outputs_p)
+	{
+		free(g_outputs_p);
+		g_outputs_p = nullptr;
+	}
 
 	return 0;
 }

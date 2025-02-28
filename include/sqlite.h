@@ -11,7 +11,7 @@
 
 #define COLUMN_SIZE 32
 #define VALUE_SIZE 512
-#define FIELD_SIZE 8
+#define FIELD_SIZE 32
 
 typedef struct
 {

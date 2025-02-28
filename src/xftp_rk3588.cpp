@@ -36,19 +36,14 @@
 // 应用LICENSE
 #define LICENSE_KEY ""
 
-char g_msg_ids[MSGID_NUM][33] = {0};
-int g_msgid_cur = 0, g_is_online = 0, g_is_sending = 0,
+int g_msgid_cur = 0, g_is_online = 0, g_has_sending_iframe = 0,
 	g_is_transfer_to_mp4 = 0, g_xttp_login_times = 0, g_is_video_has_started = 0, 
-	g_is_transfer_to_xtvf = 0, g_is_send_iframe = 0, 
-	g_index = 0, g_is_check_video_pulling = 0, g_is_check_video_pull_pid = 0;
-char g_channel_no[128] = {0};
-char g_stream_url[1500] = {0};
-char g_stream_protocol[16] = {0};
-char g_rtsp_play_url[1500] = {0};
-char g_rtsp_url[1200] = {0};
-char g_rtsp_user[128] = {0};
-char g_rtsp_pwd[128] = {0};
-char g_rtsp_server_ip[512] = {0};
+	g_index = 0, g_is_check_video_pulling = 0, g_is_check_video_pull_pid = 0, 
+	g_camera_type = 1, g_stream_quality = 1;
+char g_msg_ids[MSGID_NUM][33] = {0}, g_channel_no[128] = {0}, 
+	g_stream_url[1500] = {0}, g_stream_protocol[16] = {0}, 
+	g_rtsp_play_url[1500] = {0}, g_rtsp_url[1200] = {0}, g_rtsp_user[128] = {0}, 
+	g_rtsp_pwd[128] = {0}, g_rtsp_server_ip[512] = {0};
 uint16_t g_rtsp_port = 0;
 uint16_t g_download_port = 0;
 uint16_t g_remote_server_port = 0;
@@ -76,11 +71,9 @@ int g_init_bitrate = 2000;
 long g_cur_ts = 0;
 long g_start_count_ts = 0;
 double g_mfactor = 1.0;
-
-int g_is_open_started = 0;
-
 rknn_app_context_t g_app_ctx;
-uint32_t g_timestamp = 0;
+
+int g_is_open_started = 1;
 
 void stop_session(void);
 void myStopXttpCallback(void);
@@ -100,6 +93,7 @@ void print_bin_data(uint8_t *data, int len)
 	}
 	fprintf(stderr, "\n");
 }
+// 视频流推到流媒体服务器
 int add_xftp_frame(const char *h264oraac, int insize, int type, uint32_t timestamp)
 {
 	uint8_t nalu_type = 0;
@@ -122,6 +116,7 @@ int add_xftp_frame(const char *h264oraac, int insize, int type, uint32_t timesta
 
 	return 0;
 }
+// 推理结果推到流媒体服务器
 int add_script_frame(const char *script_data, int script_len, int inner_type, uint32_t timestamp)
 {
 	if (!script_data || script_len <= 0) {
@@ -158,7 +153,7 @@ void send_script_frame(detect_result_t *results, int count, uint32_t timestamp)
 		this_item.xmax_1m = results[i].box.right * ONE_MILLION_BASE;
 		this_item.ymax_1m = results[i].box.bottom * ONE_MILLION_BASE;
 		rt = add_annotioan_item_to_set(&g_annotation_item_set, &this_item);
-		// fprintf(stderr, "[send_script_frame] timestamp=%u, i:%ld, id=%d->(%s, %f) <(%d, %d), (%d, %d)>\n", g_timestamp, i, 
+		// fprintf(stderr, "[send_script_frame] i:%ld, id=%d->(%s, %f) <(%d, %d), (%d, %d)>\n", i, 
 		// 			results[i].id, results[i].name, results[i].prop, results[i].box.left, results[i].box.top,
 		// 			results[i].box.right, results[i].box.bottom);
 	}
@@ -201,14 +196,14 @@ void get_data(int type, uint8_t *buffer, int len)
 	uint32_t timestamp = 0;
 	struct timeval tv;
 
-	if(!buffer || len <= 4){
+	if (!buffer || len <= 4) {
 		return ;
 	}
 	g_app_ctx.decoder->Decode((uint8_t *)buffer, len, 0);
 
-	if(g_is_rate && g_is_open_rate){
+	if (g_is_rate && g_is_open_rate) {
 		gettimeofday(&tv, NULL);
-		if(!g_start_count_ts){
+		if (!g_start_count_ts) {
 			if ((buffer[4] & 0x1F) == 0x05) {
 				g_start_count_ts = tv.tv_sec * 1000 + tv.tv_usec / 1000;
 				g_recv_pkts = len;
@@ -217,7 +212,7 @@ void get_data(int type, uint8_t *buffer, int len)
 			g_cur_ts = tv.tv_sec * 1000 + tv.tv_usec / 1000;
 			g_recv_pkts += len;
 		} else if ((buffer[4] & 0x1F) == 0x05) {
-			if(g_cur_ts && g_cur_ts > g_start_count_ts){
+			if (g_cur_ts && g_cur_ts > g_start_count_ts) {
 				g_get_bitrate = (g_recv_pkts * 8) / (g_cur_ts - g_start_count_ts);
 			}
 			g_start_count_ts = tv.tv_sec * 1000 + tv.tv_usec / 1000;
@@ -238,19 +233,22 @@ void rtsp_session_did_received_cb(int type, uint8_t *h264oraac, int insize)
 	int rt, video_width, video_height;
 
 	if (!g_is_open_started) {
+		// 从SPS中获取视频原始的分辨率
 		if ((h264oraac[0] & 0x1F) == 0x07 && !parse_sps(h264oraac, insize, &video_width, &video_height)) {
+			// 更新摄像头实际的分辨率
 			updateMuxVideoMetaInfo(video_width, video_height);
 			g_v_width = video_width;
 			g_v_height = video_height;
 			g_is_open_started = 1;
-			if(g_is_rate && g_is_open_rate){
+			if (g_is_rate && g_is_open_rate) {
 				g_get_bitrate = 0;
 				g_prev_bitrate = 0;
 				g_is_rate_iframe = 0;
 				g_start_count_ts = 0;
-			}else{
+			} else {
 				frame_cir_buff_init(&g_frame_cir_buff);
 			}
+			// 开启视频帧解码并进行推理线程
 			rt = init_rk3588(&g_app_ctx, MODEL_FILE, 264, g_is_open_rate);
 			fprintf(stderr, "[rtsp_session_did_received_cb] init_rk3588 rt = %d\n", rt);
 		} else {
@@ -258,34 +256,35 @@ void rtsp_session_did_received_cb(int type, uint8_t *h264oraac, int insize)
 			return ;
 		}
 	}
-	if(g_is_transfer_to_xtvf){
-		if(g_is_send_iframe){
-			memcpy(&xftp_frame_buffer[4], h264oraac, insize);
-			get_data(type, xftp_frame_buffer, insize + 4);
-		}
+	if (g_has_sending_iframe) {
+		memcpy(&xftp_frame_buffer[4], h264oraac, insize);
+		get_data(type, xftp_frame_buffer, insize + 4);
 	}
 }
+// 拉流结束的回调
 void video_session_did_stop_cb(void)
 {
 	fprintf(stderr, "[video_session_did_stop_cb] ++++++++++++++++++++++++++++ \n");
 }
+// 启动 rtsp 拉流
 int start_pull_video(void)
 {
 	int rt = 0;
 
-	if(!strcmp(g_stream_protocol, "rtsp")){
+	if (!strcmp(g_stream_protocol, "rtsp")) {
 		rt = start_open_rtsp_thread(g_rtsp_url, g_rtsp_port, g_rtsp_user, g_rtsp_pwd, g_rtsp_server_ip, rtsp_session_did_received_cb, video_session_did_stop_cb);
 		if (rt) {
 			fprintf(stderr, "[start_pull_video] start_open_rtsp_thread failed. rt = %d\n", rt);
 			return -1;
 		}
-		fprintf(stderr, "[start_pull_video] start_open_rtsp_thread success=%d\n", rt);
-	}else{
+		fprintf(stderr, "[start_pull_video] start_open_rtsp_thread success = %d\n", rt);
+	} else {
 		fprintf(stderr, "[start_pull_video] error g_stream_protocol = %s\n", g_stream_protocol);
 		return -3;
 	}
 	return rt;
 }
+// 通知对方已经开始推流
 int send_session_info_to_receiver(char *receiver)
 {
 	int rt = 0;
@@ -297,20 +296,16 @@ int send_session_info_to_receiver(char *receiver)
 		return -1;
 	}
 	if (g_start_vts > 0 && strlen(g_peer_name) && strlen(g_remote_server_name) && g_uidn && g_ssrc && g_download_port > 0) {
-		if(!strcmp(g_peer_name, GB28181_AGENT)){
+		if (!strcmp(g_peer_name, GB28181_AGENT)) {
 			strcpy(recver, GB28181_AGENT);
 			sprintf(callback_msg, "type=6;control_type=22;uidn=%u;ssrc=%u;index=%d;download_port=%d", g_uidn, g_ssrc, g_index, g_download_port);
-		} else if(!strcmp(receiver, WEB_AGENT)){
+		} else if (!strcmp(receiver, WEB_AGENT)) {
 			strcpy(recver, SRS_AGENT);
 			sprintf(callback_msg, "type=6;control_type=7;uidn=%u;ssrc=%u;sid=%s;web_agent=%s;stream_name=%s;download_port=%d", g_uidn, g_ssrc, g_sid, g_peer_name, g_stream_name, g_download_port);
 		} else if (strlen(receiver)) {
 			strcpy(recver, receiver);
-			if (strlen(g_xftp_gw_server)) {
-				sprintf(callback_msg, "type=6;control_type=2;uidn=%u;ssrc=%u;server_name=%s;download_port=%d", g_uidn, g_ssrc, g_xftp_gw_server, g_download_port);
-			} else {
-				sprintf(callback_msg, "type=6;control_type=2;uidn=%u;ssrc=%u;server_name=%s;download_port=%d", g_uidn, g_ssrc, g_remote_server_name, g_download_port);
-			}
-		}else{
+			sprintf(callback_msg, "type=6;control_type=2;uidn=%u;ssrc=%u;server_name=%s;download_port=%d", g_uidn, g_ssrc, g_remote_server_name, g_download_port);
+		} else {
 			fprintf(stderr, "[send_session_info_to_receiver] receiver --> %s\n", receiver);
 			return -2;
 		}
@@ -326,11 +321,12 @@ int send_session_info_to_receiver(char *receiver)
 	} else {
 		fprintf(stderr, "[send_session_info_to_receiver] return -3 : uidn=%u | ssrc=%u |g_start_vts=%ld | g_remote_server_name=%s | g_download_port=%d |g_peer_name=%s\n",
 			g_uidn, g_ssrc, g_start_vts, g_remote_server_name, g_download_port, g_peer_name);
-		rt = -3;
+		return -3;
 	}
 
 	return rt;
 }
+// live SDK推流初始化成功回调
 void xftpDidStart(long uidn, long ssrc, const char *remoteFilePath, const char *remoteServerName, int remoteServerPort, int downloadPort)
 {
 	int rt = 0;
@@ -346,17 +342,17 @@ void xftpDidStart(long uidn, long ssrc, const char *remoteFilePath, const char *
 	strcpy(g_remote_file_path, remoteFilePath);
 
 	g_is_open_started = 0;
+	// 启动拉取摄像头视频流
 	rt = start_pull_video();
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[xftpDidStart] start_pull_video failed. rt = %d\n", rt);
 		return;
 	}
-
+	// 推送消息给观看端
 	send_session_info_to_receiver(g_peer_name);
-	g_is_transfer_to_xtvf = 1;
-	g_is_send_iframe = 1;
-	g_is_sending = 1;
+	g_has_sending_iframe = 1;
 }
+// live SDK推流结束回调
 void xftpTransferSuccess(long uidn, long ssrc, const char *remoteFilePath, const char *remoteServerName, int remoteServerPort, int downloadPort)
 {
 	fprintf(stderr, "[xftpTransferSuccess] : %ld | %ld | %s | %s | %d | %d\n", uidn, ssrc, remoteFilePath, remoteServerName, remoteServerPort, downloadPort);
@@ -366,6 +362,7 @@ void xftpTransferSuccess(long uidn, long ssrc, const char *remoteFilePath, const
 	g_uidn = 0;
 	g_ssrc = 0;
 }
+// live SDK推流失败回调
 void xftpFailedState(int state, const char *msg)
 {
 	fprintf(stderr, "[xftpFailedState] state:%d, msg:%s\n", state, msg ? msg : "NULL");
@@ -377,8 +374,7 @@ void xftpFailedState(int state, const char *msg)
 }
 void xftpChangeBitrate(long uidn, long ssrc, double factor)
 {
-	// fprintf(stderr, "[xftpChangeBitrate] uidn = %ld, ssrc = %ld, factor = %.3f\n", uidn, ssrc, factor);
-	if(g_is_rate && g_is_open_rate && g_get_bitrate > 10){
+	if (g_is_rate && g_is_open_rate && g_get_bitrate > 10) {
 		g_mfactor *= factor;
 		if (g_mfactor >= 1.0){
 			g_mfactor = 1.0;
@@ -386,34 +382,32 @@ void xftpChangeBitrate(long uidn, long ssrc, double factor)
 			g_mfactor = 0.1;
 		}
 		g_bitrate = (int)(g_mfactor * g_get_bitrate);
-		if(g_prev_bitrate == g_bitrate) return;
 		fprintf(stderr,"[xftpChangeBitrate] g_mfactor = %f, g_prev_bitrate = %d, g_bitrate = %d, g_get_bitrate = %dkbps\n", g_mfactor, g_prev_bitrate, g_bitrate, g_get_bitrate);
-		if(g_bitrate > 3000) g_bitrate = 3000;
+		if (g_bitrate > 3000) g_bitrate = 3000;
 		g_prev_bitrate = g_bitrate;
 		g_app_ctx.encoder->ChangeBps(g_bitrate * 1000);
 	}
 }
+// 初始化推流SDK
 int start_xftp_request(int width, int height)
 {
-	int rt;
-
 	if (width <= 0 || height <= 0) {
 		fprintf(stderr, "[start_xftp_request] invalid param!\n");
 		return -1;
 	}
-	rt = stopSend();
-	rt = closeXtvf();
-	fprintf(stderr, "[start_xftp_request] Before initMuxToXtvfNew, g_xftp_server=%s，g_xftp_port=%d, g_xftp_user=%s, g_xftp_pwd=%s\n", g_xftp_server, g_xftp_port, g_xftp_user, g_xftp_pwd);
+	stopSend();
+	closeXtvf();
+	fprintf(stderr, "[start_xftp_request] Before initXftpMuxSession, g_xftp_server=%s, g_xftp_port=%d, g_xftp_user=%s, g_xftp_pwd=%s\n", g_xftp_server, g_xftp_port, g_xftp_user, g_xftp_pwd);
 	return initXftpMuxSession(NULL, 30, width, height, -1, -1, -1, 0, 0, g_xftp_user, g_xftp_pwd, g_xftp_server,
 					g_xftp_port, 0, xftpDidStart, xftpFailedState, xftpTransferSuccess, xftpChangeBitrate);
 }
+// 开启SDK推流
 int start_live(void)
 {
 	return start_xftp_request(g_v_width, g_v_height);
 }
 void *screenshot_and_upload_thread(void *arg)
 {
-	int rt;
 	char record_str[2048] = {0};
 	struct timeval cur_tv;
 	uint64_t cur_ms = 0;
@@ -421,7 +415,7 @@ void *screenshot_and_upload_thread(void *arg)
 	gettimeofday(&cur_tv, NULL);
 	cur_ms = cur_tv.tv_sec * 1000  + cur_tv.tv_usec / 1000;
 	snprintf(record_str, sizeof(record_str) - 1, "/usr/bin/ffmpeg -i '%s' -vframes 1 '/usr/local/xt/screenshot/%lu.jpg' > /dev/null 2>&1", g_stream_url, cur_ms);
-	rt = system(record_str);
+	int rt = system(record_str);
 	snprintf(record_str, sizeof(record_str) - 1, "/usr/bin/curl -X POST -T '/usr/local/xt/screenshot/%lu.jpg' 'http://%s:%d/live/debug/info?type=1&filename=%lu.jpg&device_no=%s' > /dev/null 2>&1", cur_ms, g_web_server, g_web_port, cur_ms, g_xftp_user);
 	rt = system(record_str);
 
@@ -441,52 +435,55 @@ int screenshot_and_upload(void)
 	pthread_attr_destroy(&attr);
 	return 0;
 }
+// 停止SDK推流
 int stop_xftp_session(void)
 {
-	int rt = closeXtvf();
-	fprintf(stderr, "closeXtvf...rt = %d\n", rt);
-	rt = stopSend();
-	fprintf(stderr, "stopSend---rt = %d\n", rt);
+	closeXtvf();
+	fprintf(stderr, "closeXtvf ... ... \n");
+	stopSend();
+	fprintf(stderr, "stopSend ... ... \n");
 
-	return rt;
+	return 0;
 }
+// SDK停止推流并截图
 int stop_live(void)
 {
-	if(!strcmp(g_stream_protocol, "rtsp")){
-		stop_rtsp_over_tcp_thread();
-	}
 	screenshot_and_upload();
+	if (!strcmp(g_stream_protocol, "rtsp")) {
+		stop_rtsp_over_tcp_thread(); // 停止 rtsp 拉流
+	}
 
-	int rt = stop_xftp_session();
-	fprintf(stderr, "[stop_live] stop_xftp_session=%d\n", rt);
+	stop_xftp_session();
 
-	return rt;
+	return 0;
 }
+// 结束推流/推理
 void stop_session(void)
 {
+	fprintf(stderr, "[stop_session] start ... ... \n");
+
 	g_start_vts = 0;
 	g_download_port = 0;
 	g_uidn = 0;
 	g_ssrc = 0;
-	g_is_sending = 0;
-	g_is_transfer_to_xtvf = 0;
-	g_is_send_iframe = 0;
+	g_has_sending_iframe = 0;
 
 	fprintf(stderr, "[stop_session] start, before stop_live\n");
-	int rt = stop_live();
-	fprintf(stderr, "[stop_session] stop_live rt = %d, END ... ... \n", rt);
+	stop_live();
+	fprintf(stderr, "[stop_session] stop_live, END ... ... \n");
 
-	if(!g_is_rate || !g_is_open_rate){
+	if (!g_is_rate || !g_is_open_rate) {
 		FRAME_INFO f_info = {.seqno = 0, .timestamp = 0};
-		rt = frame_cir_buff_enqueue(&g_frame_cir_buff, &f_info);
+		frame_cir_buff_enqueue(&g_frame_cir_buff, &f_info);
 	}
 
 	deinit_rk3588(&g_app_ctx);
 }
+// 结束推流
 void stop_session0(uint32_t uidn, uint32_t ssrc)
 {
 	fprintf(stderr, "[stop_session0] uidn = %u, g_uidn = %u, ssrc = %u, g_ssrc = %u\n", uidn, g_uidn, ssrc, g_ssrc);
-	if(uidn != g_uidn || ssrc != g_ssrc){
+	if (uidn != g_uidn || ssrc != g_ssrc) {
 		return;
 	}
 	stop_session();
@@ -499,12 +496,13 @@ int update_open_rate(int is_open_rate)
 
 	snprintf(update_sql_channel, sizeof(update_sql_channel) - 1, "update m_channel set is_open_rate = %d where channel_no = '%s'", is_open_rate, g_channel_no);
 	rt = write_data(update_sql_channel);
-	if(rt < 0){
+	if (rt) {
 		fprintf(stderr, "[update_open_rate] write_data update %s is_open_rate to %d error rt = %d\n", g_channel_no, is_open_rate, rt);
 		return -1;
 	}
 	return 0;
 }
+// 更新在线状态
 int update_channel_online(int is_online)
 {
 	int rt, is_local_normal = 1;
@@ -512,23 +510,24 @@ int update_channel_online(int is_online)
 
 	snprintf(update_sql_channel, sizeof(update_sql_channel) - 1, "update m_channel set is_normal = %d, is_online = %d where channel_no = '%s'", is_local_normal, is_online, g_channel_no);
 	rt = write_data(update_sql_channel);
-	if(rt < 0){
+	if (rt) {
 		fprintf(stderr, "[update_channel_online] write_data update %s online to %d error rt = %d\n", g_channel_no, is_online, rt);
 		return -2;
 	}
-	if(!g_web_port || !strlen(g_web_server)){
+	if (!g_web_port || !strlen(g_web_server)) {
 		fprintf(stderr, "[update_channel_online] empty g_web_port = %d, g_web_server = %s\n", g_web_port, g_web_server);
 		return -3;
 	}
 	snprintf(url, sizeof(url) - 1, "http://%s:%d/live/channel/modChannelXtOnline?device_no=%s&is_online_xt=%d&is_normal=%d", g_web_server, g_web_port, g_xftp_user, is_online, is_local_normal);
 	rt = httpRequest(url, NULL, NULL);
-	if(rt < 0){
+	if (rt < 0) {
 		fprintf(stderr, "[update_channel_online] url = %s, modChannelXtOnline error rt = %d\n", url, rt);
 		return -4;
 	}
 
 	return 0;
 }
+// 消息SDK初始化成功回调
 void myRegisterSuccessCallback(int state, const char *from, const char *servername, const int serverport)
 {
 	g_is_online = 1;
@@ -536,12 +535,14 @@ void myRegisterSuccessCallback(int state, const char *from, const char *serverna
 	update_channel_online(1);
 	fprintf(stderr, "[myRegisterSuccessCallback] state=%d, from=%s, servername=%s, serverport=%d\n", state, from, servername, serverport);
 }
+// 消息SDK初始化失败回调
 void myRegisterFailedCallback(int state, const char *msg)
 {
 	g_is_online = 0;
 	update_channel_online(0);
 	fprintf(stderr, "[myRegisterFailedCallback] times = %d, state=%d, msg=%s\n", g_xttp_login_times, state, msg);
 }
+// 消息SDK接收到消息回调
 void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, int msg_type, const char *pid, const char *msgatime, int need_transfer_encode)
 {
 	MSG_SENT_RESULT sent_result;
@@ -557,6 +558,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		return;
 	}
 	if (msgid) {
+		// 消息去重
 		for(; n < MSGID_NUM; n++){
 			if (!strcmp(g_msg_ids[n], msgid)) {
 				return;
@@ -572,6 +574,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		return;
 	}
 
+	// 解析消息字段
 	key_value_pairs = string_split_handle(';', g_recv_msg, &msg_split_handler);
 	if (key_value_pairs->items != NULL) {
 		for (i = 0; i < key_value_pairs->number; i++) {
@@ -637,30 +640,33 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 	if (type != 6){
 		return;
 	}
+
 	switch (control_type) {
 		case 1: //收到摄像头开始推流指令
 		case 6:
 		case 21: //收到GB28181网关摄像头开始推流指令
 			strcpy(g_peer_name, from);
-			if (g_is_sending) {
+			if (g_has_sending_iframe) { // 正在推流
 				rt = send_session_info_to_receiver(g_peer_name);
 				fprintf(stderr, "[myReceiveMsgCallback] %d send_session_info_to_receiver rt = %d, g_peer_name = %s\n", control_type, rt, g_peer_name);
-			} else {
+			} else { // 开启推流
 				fprintf(stderr, "[myReceiveMsgCallback] %d should start camera and start live.\n", control_type);
-				rt = start_live();
+				// 初始化连接多媒体服务器
+				rt = start_live(); // 启动SKDK推流
 				fprintf(stderr, "[myReceiveMsgCallback] %d start_live() = %d, g_peer_name = %s\n", control_type, rt, g_peer_name);
 			}
 			break;
 		case 3: //停止推流
 		case 24:
+			// 关闭多媒体服务器的连接, 停止推流/推理
 			stop_session0(uidn, ssrc);
 			break;
 		case 5: //对方询问是否在线
 			if (strlen(msg_from)) {
 				sprintf(response_msg, "type=6;control_type=4;from=%s;is_online=1", g_xftp_user);
+				// 回复‘在线’消息
 				rt = send_control_msg(response_msg, msg_from, &sent_result);
-				if (!rt) {
-				} else {
+				if (rt) {
 					fprintf(stderr, "[myReceiveMsgCallback] send_control_msg failed(%s), rt=%d\n", response_msg, rt);
 				}
 			} else {
@@ -669,7 +675,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 			break;
 		case 25:
 			fprintf(stderr, "[myReceiveMsgCallback] g_is_rate = %d, g_is_open_rate = %d, is_open_rate = %d\n", g_is_rate, g_is_open_rate, is_open_rate);
-			if(!g_is_rate || g_is_open_rate == is_open_rate) break;
+			if (!g_is_rate || g_is_open_rate == is_open_rate) break;
 			rt = update_open_rate(is_open_rate);
 			fprintf(stderr, "[myReceiveMsgCallback] update_open_rate(%d) rt = %d\n", is_open_rate, rt);
 			
@@ -680,29 +686,26 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 			break;
 	}
 }
-void myReceiveBinaryMsgCallback(uint8_t *data, int size, const char *from, const char *msgid, int type)
-{
-	fprintf(stderr, "[myReceiveBinaryMsgCallback] size=%d, from=%s, msgid=%s, type=%d\n", size, from, msgid, type);
-}
-void mySentMsgResponseCallback(const char *msgid, const char *pid, const char *msgatime)
-{
-	fprintf(stderr, "[mySentMsgResponseCallback] msgid=%s, pid=%s, msgatime=%s\n", msgid, pid, msgatime);
-}
+void myReceiveBinaryMsgCallback(uint8_t *data, int size, const char *from, const char *msgid, int type) {}
+void mySentMsgResponseCallback(const char *msgid, const char *pid, const char *msgatime) {}
+// 初始化消息SDK
 int start_msg_client(void)
 {
 	int rt = -100;
 
 	update_channel_online(0);
 	fprintf(stderr, "[start_msg_client] Before start_xttp_client g_is_online = %d, g_xttp_port = %d, g_xttp_server = %s\n", g_is_online, g_xttp_port, g_xttp_server);
-	if(!g_is_online){
-		rt = start_xttp_client(g_xftp_user, g_xftp_pwd, g_xttp_server, 
-				g_xttp_port, 0, myRegisterSuccessCallback, 
+	if (!g_is_online) {
+		// 启动消息SDK，连接消息服务器，设置消息回调
+		rt = start_xttp_client(g_xftp_user, g_xftp_pwd, g_xttp_server, g_xttp_port, 
+				0, myRegisterSuccessCallback, 
 				myRegisterFailedCallback, myReceiveMsgCallback,
 				myReceiveBinaryMsgCallback, mySentMsgResponseCallback, myStopXttpCallback);
-		fprintf(stderr, "[start_msg_client] start_xttp_client rt=%d\n", rt);
+		fprintf(stderr, "[start_msg_client] start_xttp_client rt = %d\n", rt);
 	}
 	return rt;
 }
+// 消息SDK停止回调, 重连消息服务器
 void myStopXttpCallback(void)
 {
 	int rt = 0;
@@ -712,18 +715,20 @@ void myStopXttpCallback(void)
 	update_channel_online(0);
 	++g_xttp_login_times;
 	if (g_xttp_login_times < XTTP_RETRY_MAX) {
+		// 重连消息服务器
 		rt = start_msg_client();
 		fprintf(stderr, "[myStopXttpCallback] 0 start_msg_client rt=%d\n", rt);
-	}else{
+	} else {
 		g_xttp_login_times = 0;
 		sleep(60);
-		if(!g_is_online){
+		if (!g_is_online) {
 			rt = start_msg_client();
 			fprintf(stderr, "[myStopXttpCallback] 1 start_msg_client rt=%d\n", rt);
 		}
 	}
 }
 
+// 解析 rtsp URL
 int get_rtsp_info(const char *url)
 {
 	char *ptr = NULL, *ptr2 = NULL, *real_url = NULL, user_auth_part[512] = {0}, port_str[512] = {0}, tmp_url[512] = {0};
@@ -793,19 +798,21 @@ int get_rtsp_info(const char *url)
 
 	return 0;
 }
+// 读取配置
 int read_config_xtvf(const char *channel_no)
 {
 	int rt;
 	TABLE_DATA data;
-	char select_sql_server[128] = {0}, device_no[33] = {0}, tmp_channel_no[4] = {0}, select_sql_device[128] = {0}, select_sql_channel[128] = {0};
+	char select_sql_server[256] = {0}, device_no[33] = {0}, tmp_channel_no[4] = {0}, select_sql_device[256] = {0}, select_sql_channel[256] = {0};
 
-	if(!channel_no || !strlen(channel_no)){
+	if (!channel_no || !strlen(channel_no)) {
 		fprintf(stderr, "[read_config_xtvf] param error.\n");
 		return -1;
 	}
+	// 获取设备号
 	snprintf(select_sql_device, sizeof(select_sql_device) - 1, "select id,device_no,device_pwd,device_name,is_mp4,is_rate from m_device");
 	rt = read_data(&data, select_sql_device);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[read_config_xtvf] Not find device. rt = %d\n", rt);
 		return -2;
 	}
@@ -813,9 +820,10 @@ int read_config_xtvf(const char *channel_no)
 	g_is_rate = atoi(data.lines[0].fields[5].val);
 	free(data.lines);
 
-	snprintf(select_sql_channel, sizeof(select_sql_channel) - 1, "select id,channel_no,channel_pwd,channel_sip,protocol,stream_url,is_open_rate from m_channel where channel_no = \"%s\"", channel_no);
+	// 获取通道号
+	snprintf(select_sql_channel, sizeof(select_sql_channel) - 1, "select id,channel_no,channel_pwd,channel_sip,protocol,stream_url,is_open_rate,camera_type,stream_quality from m_channel where channel_no = \"%s\"", channel_no);
 	rt = read_data(&data, select_sql_channel);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[read_config_xtvf] Not find channel %s.\n", channel_no);
 		return -3;
 	}
@@ -825,11 +833,14 @@ int read_config_xtvf(const char *channel_no)
 	strcpy(g_stream_protocol, data.lines[0].fields[4].val);
 	strcpy(g_stream_url, data.lines[0].fields[5].val);
 	g_is_open_rate = atoi(data.lines[0].fields[6].val);
+	g_camera_type = atoi(data.lines[0].fields[7].val);
+	g_stream_quality = atoi(data.lines[0].fields[8].val);
 	free(data.lines);
 
+	// 获取web服务器地址及端口
 	snprintf(select_sql_server, sizeof(select_sql_server) - 1, "select id,ip,port,type from m_server where type = 'web'");
 	rt = read_data(&data, select_sql_server);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[read_config_xtvf] Not find web server ip and port. rt = %d\n", rt);
 		return -4;
 	}
@@ -837,9 +848,10 @@ int read_config_xtvf(const char *channel_no)
 	g_web_port = atol(data.lines[0].fields[2].val);
 	free(data.lines);
 
+	// 获取消息服务器地址及端口
 	snprintf(select_sql_server, sizeof(select_sql_server) - 1, "select id,ip,port,type from m_server where type = 'msg'");
 	rt = read_data(&data, select_sql_server);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[read_config_xtvf] Not find msg server ip and port. rt = %d\n", rt);
 		return -5;
 	}
@@ -847,9 +859,10 @@ int read_config_xtvf(const char *channel_no)
 	g_xttp_port = atol(data.lines[0].fields[2].val);
 	free(data.lines);
 
+	// 获取流媒体服务器地址及端口
 	snprintf(select_sql_server, sizeof(select_sql_server) - 1, "select id,ip,port,type from m_server where type = 'video'");
 	rt = read_data(&data, select_sql_server);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[read_config_xtvf] Not find video server ip and port. rt = %d\n", rt);
 		return -6;
 	}
@@ -857,33 +870,38 @@ int read_config_xtvf(const char *channel_no)
 	g_xftp_port = atol(data.lines[0].fields[2].val);
 	free(data.lines);
 
-	if(!strcmp(g_stream_protocol, "rtsp")){
+	if (!strcmp(g_stream_protocol, "rtsp")) {
+		// 解析rtsp流地址
 		rt = get_rtsp_info(g_stream_url);
 		if (rt) {
 			fprintf(stderr, "[read_config_xtvf] stream_url error. rt = %d, url = %s\n", rt, g_stream_url);
 			return -7;
 		}
-	}else{
+	} else {
 		fprintf(stderr, "[read_config_xtvf] No the protocol = %s", g_stream_protocol);
 		return -9;
 	}
 
 	return 0;
 }
+// 信号处理
 void IntHandle(int signo)
 {
 	int rt = 0;
 
 	if (SIGINT == signo || SIGTERM == signo) {
 		fprintf(stderr, "[IntHandle] before stop_session\n");
+		// 停止live SDK
 		stop_session();
 		fprintf(stderr, "[IntHandle] stop_session after\n");
+		// 停止消息 SDK
 		rt = stop_xttp_client();
 		fprintf(stderr, "[IntHandle] stop_xttp_client rt = %d\n", rt);
 		g_is_running = 0;
 	}
 }
 
+// 主程序
 int main(int argc, char *argv[])
 {
 	int rt, i = 3;
@@ -899,26 +917,34 @@ int main(int argc, char *argv[])
 		return -2;
 	}
 	// rt = load_config();
-	// if (rt != 0) {
+	// if (rt) {
 	// 	fprintf(stderr, "[%s] load_config failed, rt = %d\n", argv[0], rt);
 	// 	return -3;
 	// }
+	// 验证应用ID
 	rt = initAppkeySecretLicense(APP_KEY, APP_SECRET, LICENSE_KEY);
 	if (rt != 0) {
 		fprintf(stderr, "[%s] initAppkeySecretLicense failed, rt = %d\n", argv[0], rt);
 		return -4;
 	}
+
 	g_is_udp = 0;
 	xftp_frame_buffer[0] = 0;
 	xftp_frame_buffer[1] = 0;
 	xftp_frame_buffer[2] = 0;
 	xftp_frame_buffer[3] = 1;
-	strcpy(g_channel_no, argv[1]);
+	strcpy(g_channel_no, argv[1]); // 通道号
+	// 读取配置信息，获取设备/通道号/服务器地址端口
 	rt = read_config_xtvf(g_channel_no);
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[%s] read_config_xtvf failed, rt = %d\n", argv[0], rt);
 	}
-	while(i--){
+	// 登录信令服务器
+	// 登录成功会回调 myRegisterSuccessCallback
+	// 登录失败会回调 myRegisterFailedCallback
+	// 收到消息会回调 myReceiveMsgCallback, 此回调中去处理收到相应消息的逻辑
+	// 停止时会回调 myStopXttpCallback, 此回调中去处理消息服务重连的逻辑
+	while (i--) {
 		rt = start_msg_client();
 		fprintf(stderr, "[%s] 1 start start_msg_client, rt = %d\n", argv[0], rt);
 		if (!rt) break;
@@ -932,7 +958,7 @@ int main(int argc, char *argv[])
 	signal(SIGTERM, IntHandle);
 	while (g_is_running) {
 		sleep(1);
-		if(g_is_running && !g_is_online){
+		if (g_is_running && !g_is_online) { // 不在线则需重新登陆
 			rt = start_msg_client();
 			fprintf(stderr, "[%s] 2 while start_msg_client, rt = %d\n", argv[0], rt);
 		}

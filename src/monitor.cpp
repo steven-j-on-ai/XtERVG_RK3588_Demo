@@ -298,7 +298,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		rt = httpRequest(url, get_upgrade_info, (void *)&upgrade_r);
 		if(rt < 0){
 			fprintf(stderr, "[myReceiveMsgCallback] httpRequest get_upgrade_info error rt = %d\n", rt);
-			if(channels.size) free(channels.channel);
+			if (channels.size) free(channels.channel);
 			copy_file(src_file_name, dest_file_name);
 			update_monitor_version(g_ver);
 			return;
@@ -308,7 +308,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		rt = write_data(insert_sql);
 		if(rt < 0){
 			fprintf(stderr, "[myReceiveMsgCallback] write_data device error rt = %d\n", rt);
-			if(channels.size) free(channels.channel);
+			if (channels.size) free(channels.channel);
 			copy_file(src_file_name, dest_file_name);
 			update_monitor_version(g_ver);
 			return;
@@ -318,7 +318,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		rt = write_data(insert_sql);
 		if(rt < 0){
 			fprintf(stderr, "[myReceiveMsgCallback] write_data server ip/port error rt = %d\n", rt);
-			if(channels.size) free(channels.channel);
+			if (channels.size) free(channels.channel);
 			copy_file(src_file_name, dest_file_name);
 			update_monitor_version(g_ver);
 			return;
@@ -328,7 +328,7 @@ void myReceiveMsgCallback(const char *msg, const char *from, const char *msgid, 
 		rt = write_data(insert_sql);
 		if(rt < 0){
 			fprintf(stderr, "[myReceiveMsgCallback] write_data sip info error rt = %d\n", rt);
-			if(channels.size) free(channels.channel);
+			if (channels.size) free(channels.channel);
 			copy_file(src_file_name, dest_file_name);
 			update_monitor_version(g_ver);
 			return;
@@ -551,7 +551,7 @@ int main(int argc, char *argv[])
 	char hash[128] = {0};
 
 	rt = read_hwid();
-	if(rt){
+	if (rt) {
 		fprintf(stderr, "[%s] -> Failed = %d.\n", argv[0], rt);
 		return -1;
 	}
@@ -577,9 +577,7 @@ int main(int argc, char *argv[])
 		if (!rt) break;
 		sleep(1);
 	}
-	if (rt) {
-		return -5;
-	}
+	if (rt) return -5;
 	rt = update_monitor_version(g_ver);
 	fprintf(stderr, "[%s] update_monitor_version rt = %d\n", argv[0], rt);
 	start_check_ip_thread();
