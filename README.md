@@ -63,7 +63,7 @@ cd /usr/local/xt/logs
 
 ## 配置通道信息。
 
-此部分可参考[飞流可靠安防视频平台使用指南](https://github.com/steven-j-on-ai/XtERVGDemo/blob/main/README2.md#%E9%A3%9E%E6%B5%81%E5%8F%AF%E9%9D%A0%E5%AE%89%E9%98%B2%E8%A7%86%E9%A2%91%E5%B9%B3%E5%8F%B0%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)的配置通道部分，进行相关操作。
+此部分可参考[飞流可靠安防视频平台使用指南](https://github.com/steven-j-on-ai/XtERVGDemo/blob/main/README2_cn.md#%E9%A3%9E%E6%B5%81%E5%8F%AF%E9%9D%A0%E5%AE%89%E9%98%B2%E8%A7%86%E9%A2%91%E5%B9%B3%E5%8F%B0%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)的配置通道部分，进行相关操作。
 ## 检查通道视频及观看试用。
 1.检查通道视频（在RK3588盒子上运行）
 ```bash
@@ -74,7 +74,7 @@ ps -ef | grep -v grep | grep bin/xftp
 cd /usr/local/xt/logs
 ```
 2.查看通道视频
-此部分可参考[飞流可靠安防视频平台使用指南](https://github.com/steven-j-on-ai/XtERVGDemo/blob/main/README2.md#%E9%A3%9E%E6%B5%81%E5%8F%AF%E9%9D%A0%E5%AE%89%E9%98%B2%E8%A7%86%E9%A2%91%E5%B9%B3%E5%8F%B0%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)的观看体验部分，进行相关操作。
+此部分可参考[飞流可靠安防视频平台使用指南](https://github.com/steven-j-on-ai/XtERVGDemo/blob/main/README2_cn.md#%E9%A3%9E%E6%B5%81%E5%8F%AF%E9%9D%A0%E5%AE%89%E9%98%B2%E8%A7%86%E9%A2%91%E5%B9%B3%E5%8F%B0%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)的观看体验部分，进行相关操作。
 
 # 集成SDK开发
 ## 架构说明
