@@ -37,7 +37,7 @@
  1.前往<a href="https://open.zhilianxi.com/#/login" target="_blank">息通开发平台</a>注册账号，创建应用获取 APP 鉴权信息；
  
  2.提交设备号。
- 可参考<a href="https://github.com/steven-j-on-ai/XtERVGDemo/blob/main/README2.md#%E6%81%AF%E9%80%9A%E5%BC%80%E5%8F%91%E5%B9%B3%E5%8F%B0%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97" target="_blank">息通开发平台使用指南</a>，进行相关操作。
+ 可参考<a href="https://github.com/steven-j-on-ai/XtERVG_RDK_X3_Demo/blob/main/README2_cn.md" target="_blank">息通开发平台使用指南</a>，进行相关操作。
 # 试用体验
 ## 下载 SDK 及 DEMO。
 **1.安装及运行。**
